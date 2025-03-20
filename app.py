@@ -11,6 +11,13 @@ import time
 import os
 from fpdf import FPDF
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Get API key from environment variable
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 
 # Streamlit App Configuration - Must be the first Streamlit command
 st.set_page_config(
@@ -75,18 +82,6 @@ with st.container():
 
 # Sidebar Configuration
 with st.sidebar:
-    st.markdown("### ⚙️ Settings")
-    st.markdown("---")
-    
-    # API Key Input
-    groq_api_key = st.text_input(
-        "🔑 Groq API Key",
-        value="",
-        type="password",
-        help="Enter your Groq API key to enable summarization"
-    )
-    
-    st.markdown("---")
     st.markdown("### ℹ️ About")
     st.markdown("""
     This app helps you summarize content from:
@@ -96,11 +91,18 @@ with st.sidebar:
     """)
     
     st.markdown("---")
+    st.markdown("### ⚠️ Limitations")
+    st.markdown("""
+    - Maximum video duration: 30 minutes
+    - For longer videos, please use shorter segments
+    - Processing time may vary based on content length
+    """)
+    
+    st.markdown("---")
     st.markdown("### 📌 Instructions")
     st.markdown("""
-    1. Enter your Groq API key
-    2. Paste a YouTube or website URL
-    3. Click 'Summarize' to get started
+    1. Paste a YouTube or website URL
+    2. Click 'Summarize' to get started
     """)
 
 # Main Content Area
@@ -130,12 +132,32 @@ def extract_video_id(url):
         st.error(f"Error extracting video ID: {str(e)}")
         return None
 
+def get_video_duration(video_id):
+    """Get video duration in minutes."""
+    try:
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript = transcript_list.find_transcript(["en"])
+        transcript_parts = transcript.fetch()
+        if transcript_parts:
+            # Get the last timestamp to determine total duration
+            last_part = transcript_parts[-1]
+            duration_minutes = last_part.start / 60
+            return duration_minutes
+        return 0
+    except:
+        return 0
+
 def get_youtube_transcript(video_url):
     """Fetches the transcript of a YouTube video with improved language handling."""
     try:
         video_id = extract_video_id(video_url)
         if not video_id:
             return "Invalid YouTube URL"
+
+        # Check video duration
+        duration_minutes = get_video_duration(video_id)
+        if duration_minutes > 30:
+            return f"Video duration ({duration_minutes:.1f} minutes) exceeds the 30-minute limit. Please use a shorter video or segment."
 
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
         
@@ -233,8 +255,15 @@ def generate_summary(docs, llm, prompt):
 
 # Update the prompt template for better summarization
 prompt_template = """
-Please provide a clear and accurate summary of the following content in 300 words. 
-Focus on the main points and key ideas. Do not add information that is not present in the original text.
+Please provide a detailed and comprehensive summary of the following content in 800-1000 words. 
+Include:
+1. Main points and key ideas
+2. Important details and examples
+3. Technical concepts (if any)
+4. Key conclusions or takeaways
+5. Supporting arguments or evidence
+
+Do not add information that is not present in the original text.
 If the content is technical, maintain the technical accuracy. If it's a conversation, preserve the main discussion points.
 
 Content: {text}
@@ -245,8 +274,8 @@ docs = []
 
 # Summarization Button with better styling
 if st.button("✨ Summarize Content", key="summarize_button", disabled=st.session_state.processing):
-    if not groq_api_key.strip() or not generic_url.strip():
-        st.error("⚠️ Please provide both the API key and URL to get started.")
+    if not generic_url.strip():
+        st.error("⚠️ Please provide a URL to get started.")
     elif not validators.url(generic_url):
         st.error("⚠️ Please enter a valid URL (YouTube or Website).")
     else:
@@ -256,7 +285,7 @@ if st.button("✨ Summarize Content", key="summarize_button", disabled=st.sessio
                 time.sleep(0.5)
                 
                 # LLM Configuration
-                llm = ChatGroq(model="gemma2-9b-it", groq_api_key=groq_api_key)
+                llm = ChatGroq(model="gemma2-9b-it", groq_api_key=GROQ_API_KEY)
                 
                 # Prompt Template
                 prompt = PromptTemplate(template=prompt_template, input_variables=["text"])
@@ -280,7 +309,7 @@ if st.button("✨ Summarize Content", key="summarize_button", disabled=st.sessio
                         st.error(output_summary)
                     else:
                         # Display the summary in a nice format
-                        st.markdown("### 📋 Summary")
+                        st.markdown("### 📋 Detailed Summary")
                         st.markdown(output_summary)
                         
                         # Create a container for download buttons
@@ -291,7 +320,7 @@ if st.button("✨ Summarize Content", key="summarize_button", disabled=st.sessio
                             st.download_button(
                                 label="📥 Download as Text",
                                 data=output_summary,
-                                file_name=f"summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                                file_name=f"detailed_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                                 mime="text/plain"
                             )
                         
@@ -303,7 +332,7 @@ if st.button("✨ Summarize Content", key="summarize_button", disabled=st.sessio
                             
                             # Add title
                             pdf.set_font("Arial", 'B', 16)
-                            pdf.cell(200, 10, txt="Content Summary", ln=True, align='C')
+                            pdf.cell(200, 10, txt="Detailed Content Summary", ln=True, align='C')
                             pdf.ln(10)
                             
                             # Add content
@@ -323,7 +352,7 @@ if st.button("✨ Summarize Content", key="summarize_button", disabled=st.sessio
                             st.download_button(
                                 label="📄 Download as PDF",
                                 data=pdf_bytes,
-                                file_name=f"summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                                file_name=f"detailed_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                                 mime="application/pdf"
                             )
                 else:
@@ -338,7 +367,6 @@ if st.button("✨ Summarize Content", key="summarize_button", disabled=st.sessio
 st.markdown("---")
 st.markdown("""
     <div style='text-align: center'>
-        <p>Powered by AI Magic ✨</p>
-        <p>Built with Streamlit</p>
-    </div>
+    <p>Built Different. Engineered to Impress. 💡</p>
+</div>
 """, unsafe_allow_html=True)
