@@ -39,7 +39,5 @@ dotenv
 langchain-groq
 streamlit
 yt-dlp
-speech_recognition==3.10.0
-pyttsx3==2.90
 fpdf
 youtube-transcript-api
